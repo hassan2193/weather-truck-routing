@@ -24,6 +24,7 @@ from datetime import UTC, datetime, timedelta
 from django.conf import settings
 from django.core.cache import cache
 
+from . import nws
 from .open_meteo import WeatherProviderError, fetch_batch
 from .series import HourlySeries
 
@@ -40,8 +41,13 @@ class WeatherLookup:
     unique_locations: int = 0
     cache_hits: int = 0
     upstream_requests: int = 0
-    failed_locations: int = 0
-    errors: list[str] = field(default_factory=list)
+    failed_locations: int = 0  # locations left without data after every provider was tried
+    errors: list[str] = field(default_factory=list)  # Open-Meteo failures (primary provider)
+    # weather.gov fallback (US points only)
+    fallback_provider: str | None = None
+    fallback_locations: int = 0
+    fallback_not_covered: int = 0
+    fallback_errors: list[str] = field(default_factory=list)
 
 
 def snap(lat: float, lon: float, grid: float | None = None) -> GridKey:
@@ -58,6 +64,12 @@ def forecast_days_needed(needed_until: datetime, now: datetime | None = None) ->
 
 def _cache_key(key: GridKey) -> str:
     return f"wx:{key[0]:.4f}:{key[1]:.4f}"
+
+
+# After Open-Meteo answers 429 (rate/daily limit) it is not called again for a while:
+# every further request would fail the same way and only burn more quota.
+_COOLDOWN_KEY = "wx:open-meteo:cooldown"
+OPEN_METEO_COOLDOWN_S = 600
 
 
 def get_series(
@@ -85,7 +97,10 @@ def get_series(
             missing.append(key)
 
     lookup = WeatherLookup(series=[], unique_locations=len(unique), cache_hits=hits)
-    if missing:
+    paused = cache.get(_COOLDOWN_KEY) if missing else None
+    if paused:
+        lookup.errors.append(f"{paused} (Open-Meteo paused for up to {OPEN_METEO_COOLDOWN_S // 60} min)")
+    elif missing:
         days = forecast_days_needed(needed_until)
         batch_size = settings.WEATHER_BATCH_SIZE
         batches = [missing[i : i + batch_size] for i in range(0, len(missing), batch_size)]
@@ -95,6 +110,8 @@ def get_series(
             try:
                 return batch, fetch_batch(batch, days, timeout), None
             except WeatherProviderError as exc:
+                if exc.status == 429:
+                    cache.set(_COOLDOWN_KEY, str(exc), OPEN_METEO_COOLDOWN_S)
                 return batch, None, str(exc)
 
         with ThreadPoolExecutor(max_workers=min(4, len(batches))) as pool:
@@ -102,11 +119,21 @@ def get_series(
                 if error:
                     logger.warning("Weather batch of %d locations failed: %s", len(batch), error)
                     lookup.errors.append(error)
-                    lookup.failed_locations += len(batch)
                     continue
                 for key, series in zip(batch, result):
                     resolved[key] = series
                     cache.set(_cache_key(key), series, settings.WEATHER_CACHE_TTL_SECONDS)
+
+    # Fallback: real weather.gov forecasts for US points Open-Meteo could not deliver.
+    unresolved = [k for k in missing if k not in resolved]
+    if unresolved and settings.WEATHER_FALLBACK_NWS:
+        result = nws.fetch_points(unresolved, budget_s=timeout or settings.HTTP_TIMEOUT_SECONDS)
+        resolved.update(result.series)  # not written to the Open-Meteo cache: try it again next time
+        lookup.fallback_provider = nws.PROVIDER_NAME
+        lookup.fallback_locations = len(result.series)
+        lookup.fallback_not_covered = result.not_us
+        lookup.fallback_errors = result.errors
+    lookup.failed_locations = sum(1 for k in missing if k not in resolved)
 
     lookup.series = [resolved.get(k) for k in keys]
     return lookup

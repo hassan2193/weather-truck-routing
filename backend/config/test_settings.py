@@ -7,5 +7,7 @@ from .settings import *  # noqa: E402,F401,F403
 
 ALLOWED_HOSTS = ["testserver", "localhost"]
 LOGGING["root"]["level"] = "WARNING"  # noqa: F405
+# Tests never reach the real weather.gov; fallback tests switch this on with mocked responses.
+WEATHER_FALLBACK_NWS = False
 
 os.makedirs(STATIC_ROOT, exist_ok=True)  # noqa: F405 - silences WhiteNoise "no directory" warning

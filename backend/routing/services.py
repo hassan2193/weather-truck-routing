@@ -149,6 +149,10 @@ def analyze_trip(
                 "cache_hits": lookup.cache_hits,
                 "upstream_requests": lookup.upstream_requests,
                 "failed_locations": lookup.failed_locations,
+                "errors": list(dict.fromkeys(lookup.errors))[:3],
+                "fallback_provider": lookup.fallback_provider,
+                "fallback_locations": lookup.fallback_locations,
+                "fallback_errors": lookup.fallback_errors[:3],
                 "checkpoints": len(points),
             },
         )
@@ -219,15 +223,28 @@ def _weather_warnings(route_results: list[list[_CheckpointResult]], lookup: Weat
     statuses = Counter(r.sample.status for results in route_results for r in results)
     total = sum(statuses.values())
     out = []
+    if lookup.fallback_locations:
+        primary = f" ({lookup.errors[0]})" if lookup.errors else ""
+        out.append(
+            f"Open-Meteo was unavailable{primary}. Weather for {lookup.fallback_locations} of "
+            f"{lookup.unique_locations} forecast locations comes from the {lookup.fallback_provider} instead. "
+            "Its precipitation is forecast as 1-6 hour totals and is shown as the average hourly rate, "
+            "which can understate short, intense bursts."
+        )
     if statuses[PROVIDER_ERROR]:
+        causes = list(lookup.errors[:1]) + [f"weather.gov fallback: {e}" for e in lookup.fallback_errors[:1]]
+        if lookup.fallback_not_covered:
+            causes.append(f"{lookup.fallback_not_covered} location(s) outside weather.gov coverage (US only)")
+        cause = f" Cause: {'; '.join(causes)}." if causes else ""
         out.append(
             f"Weather data could not be retrieved for {statuses[PROVIDER_ERROR]} of {total} checkpoints "
-            "(weather service error). They are shown as unavailable and excluded from risk totals."
+            f"(weather service error). They are shown as unavailable and excluded from risk totals.{cause}"
         )
     if statuses[BEYOND_HORIZON]:
         out.append(
             f"{statuses[BEYOND_HORIZON]} of {total} checkpoints arrive after the weather forecast horizon "
-            "(16 days) and are shown as unavailable."
+            f"({'about 7 days for weather.gov, ' if lookup.fallback_locations else ''}16 days for Open-Meteo) "
+            "and are shown as unavailable."
         )
     if statuses[NO_DATA]:
         out.append(f"The weather provider had no data for {statuses[NO_DATA]} checkpoint times.")

@@ -111,6 +111,9 @@ def build_route_forecast(route: Route) -> dict:
             "cache_hits": lookup.cache_hits,
             "upstream_requests": lookup.upstream_requests,
             "failed_locations": lookup.failed_locations,
+            "errors": list(dict.fromkeys(lookup.errors))[:3],
+            "fallback_provider": lookup.fallback_provider,
+            "fallback_locations": lookup.fallback_locations,
         },
     }
     if not lookup.failed_locations:  # never cache a degraded result

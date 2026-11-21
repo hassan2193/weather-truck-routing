@@ -21,6 +21,10 @@ PAST_DAYS = 1
 class WeatherProviderError(Exception):
     """Open-Meteo could not be reached or rejected the request."""
 
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
+
 
 def _parse_time(value: str) -> datetime:
     return datetime.fromisoformat(value).replace(tzinfo=UTC)
@@ -52,14 +56,20 @@ def fetch_batch(
         read_timeout = timeout or settings.HTTP_TIMEOUT_SECONDS
         resp = get_session().get(settings.OPEN_METEO_URL, params=params, timeout=timeouts(read_timeout))
     except requests.RequestException as exc:
-        raise WeatherProviderError(f"Weather service unreachable: {exc}") from exc
+        # Never put str(exc) in the message: it contains the request URL, including the API key.
+        kind = "timed out" if isinstance(exc, requests.Timeout) else "could not be reached"
+        logger.warning("Open-Meteo request %s (%s)", kind, type(exc).__name__)
+        raise WeatherProviderError(f"Weather service {kind} ({type(exc).__name__})") from exc
     if resp.status_code != 200:
         reason = ""
         try:
-            reason = resp.json().get("reason", "")
+            reason = str(resp.json().get("reason", ""))[:200]
         except ValueError:
             pass
-        raise WeatherProviderError(f"Weather service error (HTTP {resp.status_code}) {reason}".strip())
+        # Open-Meteo explains failures in "reason" (e.g. rate limits, invalid API key); keep it.
+        raise WeatherProviderError(
+            f"Weather service error (HTTP {resp.status_code}){': ' + reason if reason else ''}", resp.status_code
+        )
     try:
         payload = resp.json()
         items = payload if isinstance(payload, list) else [payload]

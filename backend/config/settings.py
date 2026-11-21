@@ -155,6 +155,16 @@ WEATHER_CACHE_TTL_SECONDS = int(os.environ.get("WEATHER_CACHE_TTL_SECONDS", "180
 WEATHER_GRID_DEGREES = float(os.environ.get("WEATHER_GRID_DEGREES", "0.05"))
 WEATHER_BATCH_SIZE = int(os.environ.get("WEATHER_BATCH_SIZE", "50"))
 WEATHER_MAX_FORECAST_DAYS = 16  # Open-Meteo forecast horizon
+# Fallback for US points when Open-Meteo fails (e.g. HTTP 429 on a shared hosting IP).
+# weather.gov needs no key but asks for a User-Agent identifying the app and a contact.
+WEATHER_FALLBACK_NWS = env_bool("WEATHER_FALLBACK_NWS", True)
+NWS_URL = os.environ.get("NWS_URL", "https://api.weather.gov").rstrip("/")
+NWS_USER_AGENT = os.environ.get("NWS_USER_AGENT") or HTTP_USER_AGENT  # never send an empty UA
+
+# Credentials in provider URLs (apikey=..., api_key=...) are redacted from every log record.
+from config.log_redaction import install as _install_log_redaction  # noqa: E402
+
+_install_log_redaction()
 
 LOGGING = {
     "version": 1,
