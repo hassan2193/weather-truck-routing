@@ -141,7 +141,12 @@ NOMINATIM_URL = os.environ.get("NOMINATIM_URL", "https://nominatim.openstreetmap
 HTTP_USER_AGENT = os.environ.get("HTTP_USER_AGENT", "weather-truck-routing/1.0")
 
 HTTP_TIMEOUT_SECONDS = float(os.environ.get("HTTP_TIMEOUT_SECONDS", "45"))
-ROUTING_TIMEOUT_SECONDS = float(os.environ.get("ROUTING_TIMEOUT_SECONDS", "90"))
+# Read timeout for one Valhalla request. Healthy responses take 1-6 s; a provider that is
+# silent for 30 s is treated as unavailable rather than waited on.
+ROUTING_TIMEOUT_SECONDS = float(os.environ.get("ROUTING_TIMEOUT_SECONDS", "30"))
+# Whole-analysis budget (routing + re-routing + weather). Must stay below gunicorn's
+# --timeout (120 s) and the frontend request timeout (120 s) so the user always gets an answer.
+ANALYSIS_DEADLINE_SECONDS = float(os.environ.get("ANALYSIS_DEADLINE_SECONDS", "75"))
 # Assumed empty weight of tractor + trailer, added to the load for route restrictions.
 TRUCK_TARE_LB = int(os.environ.get("TRUCK_TARE_LB", "32000"))
 

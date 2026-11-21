@@ -10,8 +10,10 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.db import transaction
 
+from config.http import Deadline
 from recommendations.engine import rank_routes
 from recommendations.explain import build_recommendation
 from recommendations.metrics import RouteMetrics, Segment, compute_metrics
@@ -90,7 +92,8 @@ def analyze_trip(
         raise InvalidTrip("Origin and destination are too close together to route.")
 
     # Up to 3 genuinely distinct truck routes (direct alternates, then re-routing around them).
-    search = find_routes((origin.lat, origin.lon), (destination.lat, destination.lon), load_lb)
+    deadline = Deadline(settings.ANALYSIS_DEADLINE_SECONDS)
+    search = find_routes((origin.lat, origin.lon), (destination.lat, destination.lon), load_lb, deadline)
     provider_routes = sorted(search.routes, key=lambda r: r.duration_s)  # A is always the fastest
     route_message = search.explanation()
 
@@ -108,7 +111,8 @@ def analyze_trip(
     # 2) One batched, de-duplicated, cached weather lookup for all checkpoints of all routes.
     points: list[LatLon] = [(s.lat, s.lon) for _, specs, _ in plans for s in specs]
     needed_until = max(etas[-1] for _, _, etas in plans) + timedelta(hours=1)
-    lookup = get_series(points, needed_until)
+    # whatever is left of the budget (at least a few seconds) goes to the weather lookup
+    lookup = get_series(points, needed_until, timeout=max(deadline.timeout(settings.HTTP_TIMEOUT_SECONDS), 5.0))
 
     # 3) Sample weather at each ETA and assess risk.
     cursor = 0

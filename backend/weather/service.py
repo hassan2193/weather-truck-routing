@@ -60,8 +60,14 @@ def _cache_key(key: GridKey) -> str:
     return f"wx:{key[0]:.4f}:{key[1]:.4f}"
 
 
-def get_series(points: Sequence[tuple[float, float]], needed_until: datetime) -> WeatherLookup:
-    """Resolve an hourly series for each point, covering at least up to ``needed_until``."""
+def get_series(
+    points: Sequence[tuple[float, float]], needed_until: datetime, timeout: float | None = None
+) -> WeatherLookup:
+    """Resolve an hourly series for each point, covering at least up to ``needed_until``.
+
+    ``timeout`` bounds each upstream request (batches run in parallel); failures leave the
+    affected points unavailable rather than failing the analysis.
+    """
     keys = [snap(lat, lon) for lat, lon in points]
     unique = list(dict.fromkeys(keys))
     resolved: dict[GridKey, HourlySeries] = {}
@@ -87,7 +93,7 @@ def get_series(points: Sequence[tuple[float, float]], needed_until: datetime) ->
 
         def run(batch: list[GridKey]):
             try:
-                return batch, fetch_batch(batch, days), None
+                return batch, fetch_batch(batch, days, timeout), None
             except WeatherProviderError as exc:
                 return batch, None, str(exc)
 

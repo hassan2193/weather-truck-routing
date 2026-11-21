@@ -93,7 +93,7 @@ def test_floor_to_hour():
 
 
 # --- service: dedupe + cache ---------------------------------------------------------
-def fake_fetch(coords, days):
+def fake_fetch(coords, days, timeout=None):
     fake_fetch.calls.append(list(coords))
     start = floor_to_hour(datetime.now(UTC)) - timedelta(days=1)
     return [make_series(24 * 17, start=start) for _ in coords]

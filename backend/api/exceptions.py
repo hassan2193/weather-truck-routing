@@ -31,6 +31,8 @@ def error_response(code: str, message: str, http_status: int, details=None) -> R
 def exception_handler(exc, context):
     for exc_type, code, http_status in _DOMAIN_ERRORS:
         if isinstance(exc, exc_type):
+            logger.warning("%s %s -> %s %s: %s", context["request"].method, context["request"].path,
+                           http_status, code, exc)
             return error_response(code, str(exc), http_status)
 
     if isinstance(exc, ValidationError):

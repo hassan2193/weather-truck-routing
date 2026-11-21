@@ -17,6 +17,10 @@ import logging
 import time
 from dataclasses import dataclass, field
 
+from django.conf import settings
+
+from config.http import Deadline
+
 from . import valhalla
 from .diversity import MIN_UNIQUE_FRACTION, avoidance_polygons, compare
 from .errors import NoRouteFound, RoutingProviderError
@@ -37,6 +41,10 @@ ATTEMPT_PLANS: tuple[tuple[float, ...], ...] = (
 )
 ATTEMPT_TIMEOUT_S = 30.0
 SEARCH_BUDGET_S = 60.0
+# Time kept free for the weather lookup that follows routing.
+WEATHER_RESERVE_S = 20.0
+# Don't start a re-routing attempt with less time than this.
+MIN_ATTEMPT_S = 5.0
 MIN_DIVERSIFY_MILES = 5.0
 
 
@@ -122,10 +130,20 @@ def _accept(candidate: ProviderRoute, search: RouteSearch) -> bool:
     return True
 
 
-def find_routes(origin: LatLon, destination: LatLon, load_lb: float) -> RouteSearch:
-    """Return up to three distinct truck routes (errors from the *first* request propagate)."""
+def find_routes(
+    origin: LatLon, destination: LatLon, load_lb: float, deadline: Deadline | None = None
+) -> RouteSearch:
+    """Return up to three distinct truck routes (errors from the *first* request propagate).
+
+    Every provider call is bounded by ``deadline`` (leaving time for the weather step), so the
+    whole analysis answers before the web server or browser would give up.
+    """
     started = time.monotonic()
-    first = valhalla.request_routes(origin, destination, load_lb, alternates=TARGET_ROUTES - 1)
+    deadline = deadline or Deadline(settings.ANALYSIS_DEADLINE_SECONDS)
+    first_timeout = deadline.timeout(settings.ROUTING_TIMEOUT_SECONDS, reserve=WEATHER_RESERVE_S)
+    first = valhalla.request_routes(
+        origin, destination, load_lb, alternates=TARGET_ROUTES - 1, timeout=max(first_timeout, MIN_ATTEMPT_S)
+    )
     search = RouteSearch(routes=[], provider_suggested=len(first))
     for route in first:
         if len(search.routes) < TARGET_ROUTES:
@@ -143,8 +161,10 @@ def find_routes(origin: LatLon, destination: LatLon, load_lb: float) -> RouteSea
     for fractions in ATTEMPT_PLANS:
         if len(search.routes) >= TARGET_ROUTES:
             break
-        if time.monotonic() - started > SEARCH_BUDGET_S:
+        attempt_timeout = deadline.timeout(ATTEMPT_TIMEOUT_S, reserve=WEATHER_RESERVE_S)
+        if time.monotonic() - started > SEARCH_BUDGET_S or attempt_timeout < MIN_ATTEMPT_S:
             logger.info("Route diversification stopped: time budget exhausted")
+            search.notes.append("Stopped looking for alternatives to answer within the time limit.")
             break
         polygons = avoidance_polygons([r.geometry for r in search.routes], fractions, origin, destination)
         if not polygons:
@@ -157,7 +177,7 @@ def find_routes(origin: LatLon, destination: LatLon, load_lb: float) -> RouteSea
                 load_lb,
                 alternates=TARGET_ROUTES - 1,
                 exclude_polygons=polygons,
-                timeout=ATTEMPT_TIMEOUT_S,
+                timeout=attempt_timeout,
             )
         except (NoRouteFound, RoutingProviderError) as exc:
             logger.info("Diversification attempt %d failed: %s", search.attempts, exc)

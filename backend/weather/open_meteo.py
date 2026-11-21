@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import requests
 from django.conf import settings
 
-from config.http import get_session
+from config.http import get_session, timeouts
 
 from .series import HourlySeries, parse_series
 
@@ -26,7 +26,9 @@ def _parse_time(value: str) -> datetime:
     return datetime.fromisoformat(value).replace(tzinfo=UTC)
 
 
-def fetch_batch(coords: Sequence[tuple[float, float]], forecast_days: int) -> list[HourlySeries]:
+def fetch_batch(
+    coords: Sequence[tuple[float, float]], forecast_days: int, timeout: float | None = None
+) -> list[HourlySeries]:
     """Fetch hourly series for up to ~100 coordinates in a single request.
 
     Units are requested server-side (mph, inches) and times in GMT so no
@@ -47,7 +49,8 @@ def fetch_batch(coords: Sequence[tuple[float, float]], forecast_days: int) -> li
     if settings.OPEN_METEO_API_KEY:
         params["apikey"] = settings.OPEN_METEO_API_KEY
     try:
-        resp = get_session().get(settings.OPEN_METEO_URL, params=params, timeout=settings.HTTP_TIMEOUT_SECONDS)
+        read_timeout = timeout or settings.HTTP_TIMEOUT_SECONDS
+        resp = get_session().get(settings.OPEN_METEO_URL, params=params, timeout=timeouts(read_timeout))
     except requests.RequestException as exc:
         raise WeatherProviderError(f"Weather service unreachable: {exc}") from exc
     if resp.status_code != 200:

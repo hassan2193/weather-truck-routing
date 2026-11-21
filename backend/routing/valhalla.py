@@ -12,9 +12,10 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 
 import requests
+import urllib3
 from django.conf import settings
 
-from config.http import get_session
+from config.http import get_session, timeouts
 
 from .checkpoints import TimeProfile
 from .errors import NoRouteFound, RoutingProviderError
@@ -122,21 +123,33 @@ def request_routes(
     if exclude_polygons:
         body["exclude_polygons"] = exclude_polygons
     params = {"api_key": settings.VALHALLA_API_KEY} if settings.VALHALLA_API_KEY else None
+    read_timeout = timeout or settings.ROUTING_TIMEOUT_SECONDS
     try:
         resp = get_session().post(
             f"{settings.VALHALLA_URL}/route",
             json=body,
             params=params,
-            timeout=timeout or settings.ROUTING_TIMEOUT_SECONDS,
+            timeout=timeouts(read_timeout),
         )
     except requests.RequestException as exc:
-        logger.warning("Valhalla request failed: %s", exc)
-        raise RoutingProviderError("The routing service could not be reached. Please try again.") from exc
+        if not _is_timeout(exc):
+            logger.warning("Valhalla request failed: %s", exc)
+            raise RoutingProviderError("The routing service could not be reached. Please try again.") from exc
+        logger.warning("Valhalla timed out after %.0f s: %s", read_timeout, exc)
+        raise RoutingProviderError(
+            f"The routing service did not respond within {read_timeout:.0f} seconds (it may be overloaded). "
+            "Please try again shortly."
+        ) from exc
 
     if resp.status_code == 400 or (resp.status_code == 200 and "trip" not in resp.json()):
         detail = _error_text(resp)
         # 442/443/171 etc: no path / no suitable edges near a location.
         raise NoRouteFound(f"No truck route could be found between these locations ({detail}).")
+    if resp.status_code == 429:
+        logger.warning("Valhalla rate-limited the request (HTTP 429): %s", resp.text[:300])
+        raise RoutingProviderError(
+            "The routing service is rate-limiting requests right now (HTTP 429). Please try again in a minute."
+        )
     if resp.status_code != 200:
         logger.warning("Valhalla returned HTTP %s: %s", resp.status_code, resp.text[:300])
         raise RoutingProviderError(f"The routing service returned an error (HTTP {resp.status_code}).")
@@ -146,8 +159,21 @@ def request_routes(
     return [parse_trip(t) for t in trips]
 
 
+def _is_timeout(exc: requests.RequestException) -> bool:
+    """True for read/connect timeouts, including ones urllib3 wraps in MaxRetryError
+    (requests then raises ConnectionError instead of Timeout)."""
+    if isinstance(exc, requests.Timeout):
+        return True
+    reason = getattr(exc.args[0], "reason", None) if exc.args else None
+    return isinstance(reason, urllib3.exceptions.TimeoutError)
+
+
 def _error_text(resp: requests.Response) -> str:
+    """Valhalla's own error, e.g. "error 442: No path could be found for input"."""
     try:
-        return str(resp.json().get("error", resp.text[:120]))
+        data = resp.json()
     except ValueError:
         return resp.text[:120]
+    code = data.get("error_code")
+    message = data.get("error", resp.text[:120])
+    return f"error {code}: {message}" if code is not None else str(message)
