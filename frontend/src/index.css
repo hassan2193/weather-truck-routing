@@ -1,0 +1,130 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --color-brand-50: #ecf7f8;
+  --color-brand-100: #d0eaee;
+  --color-brand-500: #1d7a8c;
+  --color-brand-600: #17667a;
+  --color-brand-700: #124f5f;
+  --color-brand-900: #0f3d4c;
+  --color-accent: #2dd4bf;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  @apply bg-slate-100 text-slate-800 antialiased;
+}
+
+/* ---- Leaflet tweaks ---------------------------------------------------- */
+.leaflet-container {
+  font-family: var(--font-sans);
+  background: #e6ecef;
+}
+.leaflet-popup-content-wrapper {
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgb(15 61 76 / 0.25);
+}
+.leaflet-popup-content {
+  margin: 12px 14px;
+}
+.leaflet-popup-content p {
+  margin: 0;
+}
+.leaflet-container a.leaflet-popup-close-button {
+  top: 6px;
+  right: 6px;
+}
+.heat-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  filter: blur(7px);
+  opacity: 0.78;
+}
+.endpoint-pin {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  border: 3px solid #fff;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
+}
+
+/* ---- Forecast slider ------------------------------------------------------ */
+.hour-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+}
+.hour-slider:focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.hour-slider::-webkit-slider-runnable-track {
+  height: 28px;
+  background: transparent;
+}
+.hour-slider::-moz-range-track {
+  height: 28px;
+  background: transparent;
+}
+.hour-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 8px;
+  height: 28px;
+  border-radius: 4px;
+  background: #0f172a;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+}
+.hour-slider::-moz-range-thumb {
+  width: 6px;
+  height: 24px;
+  border-radius: 4px;
+  background: #0f172a;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #e2e8f0;
+  border-radius: 8px;
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.6), transparent);
+  animation: shimmer 1.4s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+}

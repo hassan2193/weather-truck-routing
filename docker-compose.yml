@@ -1,0 +1,36 @@
+# Local production-like stack: PostgreSQL + the combined web image.
+#   docker compose up --build        ->  http://localhost:8000
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: haulwise
+      POSTGRES_USER: haulwise
+      POSTGRES_PASSWORD: haulwise
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U haulwise -d haulwise"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "5432:5432"
+
+  web:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DJANGO_DEBUG: "false"
+      DJANGO_SECRET_KEY: "local-compose-secret-change-me"
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1"
+      DJANGO_SECURE_SSL_REDIRECT: "false"
+      DATABASE_URL: postgres://haulwise:haulwise@db:5432/haulwise
+      HTTP_USER_AGENT: "haulwise-local/1.0"
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:

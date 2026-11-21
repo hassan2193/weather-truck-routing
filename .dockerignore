@@ -1,0 +1,15 @@
+# Keep host artefacts out of the build context (they would overwrite `npm ci` / pip installs).
+**/node_modules
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+.git
+# env files at any depth (e.g. backend/.env) must never be baked into an image
+**/.env
+**/.env.*
+frontend/dist
+backend/staticfiles
+backend/frontend_dist
+backend/db.sqlite3
